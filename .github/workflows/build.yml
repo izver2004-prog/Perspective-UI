@@ -1,0 +1,46 @@
+name: Build from ZIP
+
+on:
+  push:
+    paths: ['*.zip']
+  workflow_dispatch:
+    inputs:
+      zip_path:
+        description: 'Path of the zip inside the repository'
+        default: 'perspective-ui.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ZIP_PATH: ${{ inputs.zip_path || 'perspective-ui.zip' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack ZIP
+        id: unpack
+        run: |
+          test -f "$ZIP_PATH" || { echo "::error::ZIP not found: $ZIP_PATH"; exit 1; }
+          SRC="$RUNNER_TEMP/src"; mkdir -p "$SRC"
+          unzip -q "$ZIP_PATH" -d "$SRC"
+          F=$(find "$SRC" -name build.gradle | head -n 1)
+          test -n "$F" || { echo "::error::No build.gradle in ZIP"; exit 1; }
+          echo "root=$(dirname "$F")" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+      - name: Build
+        working-directory: ${{ steps.unpack.outputs.root }}
+        run: gradle build --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perspective-ui-jar
+          path: |
+            ${{ steps.unpack.outputs.root }}/build/libs/*.jar
+            !${{ steps.unpack.outputs.root }}/build/libs/*-sources.jar
